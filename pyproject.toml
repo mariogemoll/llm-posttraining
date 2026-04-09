@@ -5,5 +5,18 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "llm-posttraining"
 dynamic = ["version"]
-dependencies = []
+requires-python = ">=3.10"
+dependencies = [
+    "datasets",
+    "torch",
+    "transformers",
+    "peft",
+    "trl>=1.0",
+    "tqdm",
+]
 
+[project.optional-dependencies]
+vllm = ["vllm"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
