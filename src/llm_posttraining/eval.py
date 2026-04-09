@@ -19,17 +19,31 @@ import os
 import random
 import re
 import time
+from typing import Protocol, cast
 
 import torch
 from peft import PeftModel
 from tqdm import tqdm
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel, PreTrainedTokenizerBase
 
 from llm_posttraining.data import PROMPT_TEMPLATE, load_gsm8k
 from llm_posttraining.reward import answers_match, extract_answer
 
 DEFAULT_MODEL_ID = "Qwen/Qwen2.5-Math-1.5B"
 DEFAULT_MAX_SEQ_LEN = 384
+
+
+class GenerationModel(Protocol):
+    def to(
+        self,
+        device: str | torch.device | int | None = None,
+        dtype: torch.dtype | None = None,
+        non_blocking: bool = False,
+    ) -> "GenerationModel": ...
+
+    def eval(self) -> "GenerationModel": ...
+
+    def generate(self, *args: object, **kwargs: object) -> torch.Tensor: ...
 
 
 def detect_device(requested: str) -> str:
@@ -42,7 +56,7 @@ def detect_device(requested: str) -> str:
     return "cpu"
 
 
-def pick_dtype(device: str, requested: str):
+def pick_dtype(device: str, requested: str) -> torch.dtype:
     if requested != "auto":
         return {"float32": torch.float32, "float16": torch.float16, "bfloat16": torch.bfloat16}[requested]
     if device == "cuda":
@@ -52,12 +66,17 @@ def pick_dtype(device: str, requested: str):
     return torch.float32
 
 
-def load_model_and_tokenizer(ckpt: str | None, device: str, dtype, model_id: str = DEFAULT_MODEL_ID):
+def load_model_and_tokenizer(
+    ckpt: str | None, device: str, dtype: torch.dtype, model_id: str = DEFAULT_MODEL_ID
+) -> tuple[GenerationModel, PreTrainedTokenizerBase]:
     """Load model and tokenizer, auto-detecting LoRA vs merged checkpoints."""
-    is_lora = bool(ckpt and os.path.exists(os.path.join(ckpt, "adapter_config.json")))
+    adapter_config_path = os.path.join(ckpt, "adapter_config.json") if ckpt else None
+    is_lora = adapter_config_path is not None and os.path.exists(adapter_config_path)
 
     if is_lora:
-        with open(os.path.join(ckpt, "adapter_config.json")) as f:
+        assert adapter_config_path is not None
+        assert ckpt is not None
+        with open(adapter_config_path, encoding="utf-8") as f:
             adapter_cfg = json.load(f)
         model_path = adapter_cfg.get("base_model_name_or_path") or model_id
     else:
@@ -67,25 +86,36 @@ def load_model_and_tokenizer(ckpt: str | None, device: str, dtype, model_id: str
     print(f"Loading {label} (device={device}, dtype={dtype}) ...")
 
     tokenizer = AutoTokenizer.from_pretrained(model_path)
+    assert isinstance(tokenizer, PreTrainedTokenizerBase)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "left"
 
-    model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=dtype, low_cpu_mem_usage=True)
+    base_model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=dtype, low_cpu_mem_usage=True)
+    assert isinstance(base_model, PreTrainedModel)
+    model = cast(GenerationModel, base_model)
     if is_lora:
-        model = PeftModel.from_pretrained(model, ckpt, is_trainable=False)
+        assert ckpt is not None
+        model = cast(GenerationModel, PeftModel.from_pretrained(base_model, ckpt, is_trainable=False))
 
     model.to(device)
     model.eval()
     return model, tokenizer
 
 
-def generate_batched(model, tokenizer, prompts: list[str], batch_size: int, max_new_tokens: int):
+def generate_batched(
+    model: GenerationModel,
+    tokenizer: PreTrainedTokenizerBase,
+    prompts: list[str],
+    batch_size: int,
+    max_new_tokens: int,
+    device: str,
+):
     """Generate completions in batches. Yields (start_idx, texts, token_counts)."""
     for start in tqdm(range(0, len(prompts), batch_size), desc="Generating"):
         batch = prompts[start : start + batch_size]
         inputs = tokenizer(batch, return_tensors="pt", padding=True, truncation=True, max_length=max_new_tokens)
-        inputs = {k: v.to(model.device) for k, v in inputs.items()}
+        inputs = {k: v.to(device) for k, v in inputs.items()}
         prompt_lengths = inputs["attention_mask"].sum(dim=1)
 
         with torch.inference_mode():
@@ -122,8 +152,8 @@ def evaluate(
         dataset = dataset.select(range(min(max_examples, len(dataset))))
 
     device = detect_device(device)
-    dtype = pick_dtype(device, dtype)
-    model, tokenizer = load_model_and_tokenizer(ckpt=ckpt, device=device, dtype=dtype, model_id=model_id)
+    runtime_dtype = pick_dtype(device, dtype)
+    model, tokenizer = load_model_and_tokenizer(ckpt=ckpt, device=device, dtype=runtime_dtype, model_id=model_id)
 
     prompts = [PROMPT_TEMPLATE.format(question=ex["question"]) for ex in dataset]
     gold_answers = [ex["answer"] for ex in dataset]
@@ -136,7 +166,9 @@ def evaluate(
     total_tokens = 0
     results = []
 
-    for start, generations, token_counts in generate_batched(model, tokenizer, prompts, batch_size, max_seq_len):
+    for start, generations, token_counts in generate_batched(
+        model, tokenizer, prompts, batch_size, max_seq_len, device
+    ):
         total_tokens += sum(token_counts)
         batch_gold = gold_answers[start : start + len(generations)]
 
