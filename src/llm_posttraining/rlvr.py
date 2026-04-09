@@ -210,12 +210,12 @@ def make_reward_fn():
 
 def train(
     output_dir: str = "checkpoints_rlvr",
-    base_model: str | None = None,
+    base_model: str | None = "checkpoints_sft/merged",
     use_vllm: bool = False,
-    vllm_gpu_memory_utilization: float = 0.2,
+    vllm_gpu_memory_utilization: float = 0.7,
     attn_implementation: str = "auto",
     num_generations: int = 8,
-    prompts_per_step: int = 3,
+    prompts_per_step: int = 2,
     epochs: int = 1,
     max_steps: int = -1,
 ):
@@ -342,8 +342,8 @@ def main():
     parser.add_argument("--output_dir", default="checkpoints_rlvr")
     parser.add_argument(
         "--base_model",
-        default=None,
-        help="Path to merged SFT model (e.g. checkpoints_sft/merged). Defaults to MODEL_ID.",
+        default="checkpoints_sft/merged",
+        help="Path to merged SFT model. Defaults to checkpoints_sft/merged.",
     )
     parser.add_argument(
         "--use_vllm", action="store_true", help="Use vLLM for fast rollout generation"
@@ -351,7 +351,7 @@ def main():
     parser.add_argument(
         "--vllm_gpu_memory_utilization",
         type=float,
-        default=0.2,
+        default=0.7,
         help="Fraction of GPU memory reserved for vLLM when --use_vllm is enabled.",
     )
     parser.add_argument(
@@ -364,7 +364,7 @@ def main():
     parser.add_argument(
         "--prompts_per_step",
         type=int,
-        default=3,
+        default=2,
         help="Prompts per optimizer step. batch_size = num_generations * prompts_per_step",
     )
     parser.add_argument(
