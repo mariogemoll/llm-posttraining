@@ -10,4 +10,6 @@ __pycache__
 *.log
 *.safetensors
 uv.lock
+/checkpoints_rlvr
 /checkpoints_sft
+/runs.db*
