@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Step {{ step }} - {{ run.run_id[:16] }}{% endblock %}
+
+{% block breadcrumb %}
+  <a href="/run/{{ run.run_id }}">{{ run.run_id[:16] }}...</a>
+  > Step {{ step }}
+{% endblock %}
+
+{% block content %}
+<h1>Step {{ step }}</h1>
+
+<div class="nav-steps">
+  {% if prev_step is not none %}
+    <a href="/run/{{ run.run_id }}/step/{{ prev_step }}">&larr; Step {{ prev_step }}</a>
+  {% endif %}
+  {% if next_step is not none %}
+    <a href="/run/{{ run.run_id }}/step/{{ next_step }}">Step {{ next_step }} &rarr;</a>
+  {% endif %}
+  <a href="/run/{{ run.run_id }}" style="margin-left:auto">Back to run</a>
+</div>
+
+{% if step_stats %}
+<p style="font-size:0.85rem;color:#888">
+  Reward: <strong>{{ "%.4f" % step_stats.reward if step_stats.reward is not none else "—" }}</strong>
+  | Loss: <strong>{{ "%.4f" % step_stats.loss if step_stats.loss is not none else "—" }}</strong>
+  | KL: <strong>{{ "%.4f" % step_stats.kl if step_stats.kl is not none else "—" }}</strong>
+</p>
+{% endif %}
+
+{% if groups %}
+  {% for prompt, completions in groups.items() %}
+  <h2>Prompt group ({{ completions | length }} completion{{ "s" if completions|length != 1 }})</h2>
+  <div class="prompt-block">{{ prompt }}</div>
+
+  {% for c in completions %}
+  <div class="completion-block">
+    <div class="completion-header">
+      <span>Predicted: <strong class="mono">{{ c.predicted_answer or "—" }}</strong></span>
+      <span>Expected: <strong class="mono">{{ c.expected_answer or "—" }}</strong></span>
+      <span>Reward:
+        <span class="{{ 'reward-correct' if c.reward and c.reward > 0 else 'reward-wrong' }}">
+          {{ "%.1f" % c.reward if c.reward is not none else "—" }}
+        </span>
+      </span>
+    </div>
+    <pre class="mono">{{ c.completion }}</pre>
+  </div>
+  {% endfor %}
+  {% endfor %}
+{% else %}
+<p style="color:#888">No completions logged for this step.</p>
+{% endif %}
+{% endblock %}

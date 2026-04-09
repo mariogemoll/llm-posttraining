@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}RLVR Viewer{% endblock %}</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; margin: 0; background: #f5f6f8; color: #1a1a1a; }
+    a { color: #2563eb; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    nav { background: #fff; padding: 0.6rem 1.4rem; font-size: 0.85rem; border-bottom: 1px solid #e0e0e0; }
+    nav a { margin-right: 1rem; }
+    .container { max-width: 1100px; margin: 0 auto; padding: 1.5rem 1.4rem; }
+    h1 { font-size: 1.4rem; margin: 0 0 1.2rem; }
+    h2 { font-size: 1.1rem; margin: 1.5rem 0 0.6rem; color: #555; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+    th { text-align: left; padding: 0.4rem 0.7rem; background: #eef0f3; color: #555; font-weight: 600; border-bottom: 1px solid #d8dae0; }
+    td { padding: 0.45rem 0.7rem; border-bottom: 1px solid #e8eaed; vertical-align: top; }
+    tr:hover td { background: #f0f2f5; }
+    .badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 3px; font-size: 0.75rem; font-weight: 600; }
+    .badge-running { background: #dcfce7; color: #16a34a; }
+    .badge-done { background: #dbeafe; color: #1d4ed8; }
+    .badge-error { background: #fee2e2; color: #dc2626; }
+    .mono { font-family: "JetBrains Mono", "Fira Code", monospace; font-size: 0.82rem; }
+    .chart-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; margin: 1rem 0; }
+    .chart-box { background: #fff; border: 1px solid #e0e0e0; border-radius: 6px; padding: 0.8rem; }
+    .chart-box canvas { width: 100% !important; height: 180px !important; }
+    pre { background: #fff; border: 1px solid #e0e0e0; border-radius: 4px; padding: 0.8rem; overflow-x: auto; font-size: 0.8rem; white-space: pre-wrap; word-break: break-word; }
+    .completion-block { background: #fff; border: 1px solid #e0e0e0; border-radius: 6px; padding: 0.8rem; margin-bottom: 0.6rem; }
+    .completion-header { display: flex; gap: 1rem; margin-bottom: 0.5rem; font-size: 0.8rem; color: #666; flex-wrap: wrap; }
+    .reward-correct { color: #16a34a; font-weight: 700; }
+    .reward-wrong { color: #dc2626; font-weight: 700; }
+    .prompt-block { background: #eef0f3; border-left: 3px solid #aaa; padding: 0.5rem 0.8rem; margin-bottom: 0.8rem; font-size: 0.82rem; white-space: pre-wrap; word-break: break-word; }
+    .nav-steps { display: flex; gap: 1rem; margin-bottom: 1rem; font-size: 0.9rem; flex-wrap: wrap; }
+  </style>
+</head>
+<body>
+<nav>
+  <a href="/">All Runs</a>
+  {% block breadcrumb %}{% endblock %}
+</nav>
+<div class="container">
+  {% block content %}{% endblock %}
+</div>
+</body>
+</html>

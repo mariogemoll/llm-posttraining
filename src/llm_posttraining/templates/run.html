@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+{% block title %}Run {{ run.run_id[:16] }}{% endblock %}
+
+{% block breadcrumb %}
+  <a href="/run/{{ run.run_id }}">{{ run.run_id[:16] }}...</a>
+{% endblock %}
+
+{% block content %}
+<h1>Run <span class="mono">{{ run.run_id[:16] }}...</span></h1>
+<p style="font-size:0.85rem;color:#888">
+  Started: {{ run.start_time[:19] if run.start_time else "—" }} | 
+  Trainer: {{ run.trainer or "—" }} |
+  Duration: {{ run.duration or "—" }} |
+  Status:
+  <span class="badge {% if run.status == 'running' %}badge-running{% elif run.status == 'done' %}badge-done{% else %}badge-error{% endif %}">
+    {{ run.status or "?" }}
+  </span>
+</p>
+
+{% if steps %}
+<div class="chart-row">
+  <div class="chart-box"><div style="font-size:0.8rem;color:#888;margin-bottom:0.4rem">Reward</div><canvas id="chartReward"></canvas></div>
+  <div class="chart-box"><div style="font-size:0.8rem;color:#888;margin-bottom:0.4rem">Loss</div><canvas id="chartLoss"></canvas></div>
+  <div class="chart-box"><div style="font-size:0.8rem;color:#888;margin-bottom:0.4rem">PG Loss</div><canvas id="chartPGLoss"></canvas></div>
+  <div class="chart-box"><div style="font-size:0.8rem;color:#888;margin-bottom:0.4rem">KL Divergence</div><canvas id="chartKL"></canvas></div>
+  <div class="chart-box"><div style="font-size:0.8rem;color:#888;margin-bottom:0.4rem">Truncated Completions</div><canvas id="chartTruncated"></canvas></div>
+  <div class="chart-box"><div style="font-size:0.8rem;color:#888;margin-bottom:0.4rem">Grad Norm</div><canvas id="chartGradNorm"></canvas></div>
+  <div class="chart-box"><div style="font-size:0.8rem;color:#888;margin-bottom:0.4rem">Format Rate</div><canvas id="chartFormatRate"></canvas></div>
+  <div class="chart-box"><div style="font-size:0.8rem;color:#888;margin-bottom:0.4rem">Avg Completion Length</div><canvas id="chartAvgLength"></canvas></div>
+  <div class="chart-box"><div style="font-size:0.8rem;color:#888;margin-bottom:0.4rem">Learning Rate</div><canvas id="chartLR"></canvas></div>
+  <div class="chart-box"><div style="font-size:0.8rem;color:#888;margin-bottom:0.4rem">Step Time (s)</div><canvas id="chartStepTime"></canvas></div>
+  <div class="chart-box"><div style="font-size:0.8rem;color:#888;margin-bottom:0.4rem">Generation Time (s)</div><canvas id="chartGenTime"></canvas></div>
+  <div class="chart-box"><div style="font-size:0.8rem;color:#888;margin-bottom:0.4rem">Train Time (s)</div><canvas id="chartTrainTime"></canvas></div>
+</div>
+
+<h2>Steps</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Step</th>
+      <th>Reward</th>
+      <th>Loss</th>
+      <th>PG Loss</th>
+      <th>KL</th>
+      <th>LR</th>
+      <th>Grad Norm</th>
+      <th>Format %</th>
+      <th>Avg Len</th>
+      <th>Truncated</th>
+      <th>Gen (s)</th>
+      <th>Step (s)</th>
+      <th>Completions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for s in steps %}
+    <tr>
+      <td><a href="/run/{{ run.run_id }}/step/{{ s.step }}">{{ s.step }}</a></td>
+      <td>{{ "%.4f" % s.reward if s.reward is not none else "—" }}</td>
+      <td>{{ "%.6g" % s.loss if s.loss is not none else "—" }}</td>
+      <td>{{ "%.6g" % s.pg_loss if s.pg_loss is not none else "—" }}</td>
+      <td>{{ "%.6g" % s.kl if s.kl is not none else "—" }}</td>
+      <td class="mono">{{ "%.2e" % s.lr if s.lr is not none else "—" }}</td>
+      <td>{{ "%.3f" % s.grad_norm if s.grad_norm is not none else "—" }}</td>
+      <td>{{ "%.0f%%" % (s.format_rate * 100) if s.format_rate is not none else "—" }}</td>
+      <td>{{ "%.0f" % s.avg_completion_length if s.avg_completion_length is not none else "—" }}</td>
+      <td>
+        {% if s.truncated_count is not none and total_completions_per_step %}
+          {{ "%.0f%%" % (s.truncated_count / total_completions_per_step * 100) }}
+        {% else %}
+          —
+        {% endif %}
+      </td>
+      <td>{{ "%.1f" % s.gen_time if s.gen_time is not none else "—" }}</td>
+      <td>{{ "%.1f" % s.step_time if s.step_time is not none else "—" }}</td>
+      <td><a href="/run/{{ run.run_id }}/step/{{ s.step }}">view</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p style="color:#888">No steps logged yet.</p>
+{% endif %}
+
+<h2>Config</h2>
+<pre>{{ config | tojson(indent=2) }}</pre>
+
+<script>
+const steps = {{ steps | map(attribute='step') | list | tojson }};
+const rewards = {{ steps | map(attribute='reward') | list | tojson }};
+const losses = {{ steps | map(attribute='loss') | list | tojson }};
+const pgLosses = {{ steps | map(attribute='pg_loss') | list | tojson }};
+const kls = {{ steps | map(attribute='kl') | list | tojson }};
+const truncated = {{ steps | map(attribute='truncated_count') | list | tojson }}.map(
+  (value) => value === null || {{ total_completions_per_step | tojson }} === null
+    ? null
+    : value / {{ total_completions_per_step | tojson }} * 100
+);
+const gradNorms = {{ steps | map(attribute='grad_norm') | list | tojson }};
+const formatRates = {{ steps | map(attribute='format_rate') | list | tojson }};
+const avgLengths = {{ steps | map(attribute='avg_completion_length') | list | tojson }};
+const lrs = {{ steps | map(attribute='lr') | list | tojson }};
+const stepTimes = {{ steps | map(attribute='step_time') | list | tojson }};
+const genTimes = {{ steps | map(attribute='gen_time') | list | tojson }};
+const trainTimes = stepTimes.map(
+  (stepTime, index) => stepTime === null || genTimes[index] === null ? null : stepTime - genTimes[index]
+);
+
+function ema(data, alpha = 0.01) {
+  const output = [];
+  let last = null;
+  for (const value of data) {
+    if (value === null || value === undefined) {
+      output.push(null);
+      continue;
+    }
+    last = last === null ? value : alpha * value + (1 - alpha) * last;
+    output.push(last);
+  }
+  return output;
+}
+
+function rollingMean(data, window = 50) {
+  const output = [];
+  for (let index = 0; index < data.length; index += 1) {
+    const slice = data.slice(Math.max(0, index - window + 1), index + 1).filter((value) => value !== null);
+    output.push(slice.length ? slice.reduce((left, right) => left + right, 0) / slice.length : null);
+  }
+  return output;
+}
+
+function makeChart(id, label, data, color, smoothFn = ema, options = {}) {
+  const ctx = document.getElementById(id);
+  if (!ctx) {
+    return;
+  }
+  const smoothed = smoothFn ? smoothFn(data) : null;
+  const valid = (smoothed || data).filter((value) => value !== null);
+  if (!valid.length || !steps.length) {
+    return;
+  }
+  const min = Math.min(...valid);
+  const max = Math.max(...valid);
+  const pad = (max - min) * 0.5 || 0.01;
+  const rawPoints = steps.map((step, index) => ({x: step, y: data[index]}));
+  const pointRadius = options.pointRadius ?? 0;
+  const spanGaps = options.spanGaps ?? false;
+  const datasets = [{
+    label,
+    data: rawPoints,
+    borderColor: smoothed ? color + "44" : color,
+    borderWidth: smoothed ? 1 : 2,
+    pointRadius,
+    tension: 0.3,
+    fill: false,
+    spanGaps,
+  }];
+  if (smoothed) {
+    const smoothPoints = steps.map((step, index) => ({x: step, y: smoothed[index]}));
+    datasets.push({
+      label: label + " (smoothed)",
+      data: smoothPoints,
+      borderColor: color,
+      borderWidth: 2,
+      pointRadius,
+      tension: 0.3,
+      fill: false,
+      spanGaps,
+    });
+  }
+  new Chart(ctx, {
+    type: "line",
+    data: {datasets},
+    options: {
+      animation: false,
+      plugins: {legend: {display: false}},
+      parsing: false,
+      scales: {
+        x: {
+          type: "linear",
+          min: steps[0],
+          max: steps[steps.length - 1],
+          ticks: {
+            color: "#888",
+            maxTicksLimit: 8,
+            callback: (value) => Number(value).toFixed(0),
+          },
+          grid: {color: "#e8eaed"},
+        },
+        y: {
+          ticks: {color: "#888"},
+          grid: {color: "#e8eaed"},
+          min: min - pad,
+          max: max + pad,
+        },
+      },
+    },
+  });
+}
+
+makeChart("chartReward", "Reward", rewards, "#4caf50", (data) => rollingMean(data, 50));
+makeChart("chartLoss", "Loss", losses, "#1e88e5");
+makeChart("chartPGLoss", "PG Loss", pgLosses, "#7ab3f5");
+makeChart("chartKL", "KL", kls, "#f5a623");
+makeChart("chartTruncated", "Truncated %", truncated, "#e57373", ema, {pointRadius: 2, spanGaps: true});
+makeChart("chartGradNorm", "Grad Norm", gradNorms, "#ab47bc");
+makeChart("chartFormatRate", "Format Rate", formatRates, "#26a69a", ema, {pointRadius: 2, spanGaps: true});
+makeChart("chartAvgLength", "Avg Completion Length", avgLengths, "#8d6e63");
+makeChart("chartLR", "Learning Rate", lrs, "#78909c", null);
+makeChart("chartStepTime", "Step Time (s)", stepTimes, "#546e7a");
+makeChart("chartGenTime", "Generation Time (s)", genTimes, "#00897b");
+makeChart("chartTrainTime", "Train Time (s)", trainTimes, "#6d4c41");
+</script>
+{% endblock %}

@@ -8,6 +8,7 @@ dynamic = ["version"]
 requires-python = ">=3.10"
 dependencies = [
     "datasets",
+    "flask",
     "torch",
     "transformers",
     "peft",
@@ -25,6 +26,9 @@ extra-paths = ["stubs"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+llm_posttraining = ["templates/*.html"]
 
 [tool.ruff]
 line-length = 100

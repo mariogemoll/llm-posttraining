@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}RLVR Viewer{% endblock %}
+
+{% block content %}
+<h1>Training Runs</h1>
+{% if runs %}
+<table>
+  <thead>
+    <tr>
+      <th>Run ID</th>
+      <th>Started</th>
+      <th>Trainer</th>
+      <th>Duration</th>
+      <th>Status</th>
+      <th>Steps</th>
+      <th>Avg Reward</th>
+      <th>Completions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in runs %}
+    <tr>
+      <td><a href="/run/{{ r.run_id }}" class="mono">{{ r.run_id[:16] }}...</a></td>
+      <td class="mono">{{ r.start_time[:19] if r.start_time else "—" }}</td>
+      <td>{{ r.trainer or "—" }}</td>
+      <td>{{ r.duration or "—" }}</td>
+      <td>
+        <span class="badge {% if r.status == 'running' %}badge-running{% elif r.status == 'done' %}badge-done{% else %}badge-error{% endif %}">
+          {{ r.status or "?" }}
+        </span>
+      </td>
+      <td>{{ r.step_count or 0 }}</td>
+      <td>{{ r.avg_reward if r.avg_reward is not none else "—" }}</td>
+      <td>{{ r.completion_count or 0 }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p style="color:#888">No runs yet. Start training to see data here.</p>
+{% endif %}
+{% endblock %}
