@@ -201,6 +201,7 @@ def train(
     output_dir: str = "checkpoints_rlvr",
     base_model: str | None = None,
     use_vllm: bool = False,
+    vllm_gpu_memory_utilization: float = 0.2,
     num_generations: int = 8,
     prompts_per_step: int = 3,
     epochs: int = 1,
@@ -250,7 +251,7 @@ def train(
         beta=0.1,
         # vLLM
         use_vllm=use_vllm,
-        vllm_gpu_memory_utilization=0.2,
+        vllm_gpu_memory_utilization=vllm_gpu_memory_utilization,
         vllm_importance_sampling_correction=False,
         # logging / saving
         logging_steps=1,
@@ -273,6 +274,7 @@ def train(
             "num_train_epochs": config.num_train_epochs,
             "temperature": config.temperature,
             "use_vllm": use_vllm,
+            "vllm_gpu_memory_utilization": vllm_gpu_memory_utilization,
             "base_model": model_id,
             "prompts_per_step": prompts_per_step,
         },
@@ -326,6 +328,12 @@ def main():
     parser.add_argument(
         "--use_vllm", action="store_true", help="Use vLLM for fast rollout generation"
     )
+    parser.add_argument(
+        "--vllm_gpu_memory_utilization",
+        type=float,
+        default=0.2,
+        help="Fraction of GPU memory reserved for vLLM when --use_vllm is enabled.",
+    )
     parser.add_argument("--num_generations", type=int, default=8, help="Rollouts per prompt (G)")
     parser.add_argument(
         "--prompts_per_step",
@@ -344,6 +352,7 @@ def main():
         output_dir=args.output_dir,
         base_model=args.base_model,
         use_vllm=args.use_vllm,
+        vllm_gpu_memory_utilization=args.vllm_gpu_memory_utilization,
         num_generations=args.num_generations,
         prompts_per_step=args.prompts_per_step,
         epochs=args.epochs,
