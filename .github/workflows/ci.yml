@@ -26,3 +26,5 @@ jobs:
         run: uv run ty check . --output-format github
       - name: "Run ruff"
         run: uv run ruff check src
+      - name: "Run ruff format"
+        run: uv run ruff format --check src

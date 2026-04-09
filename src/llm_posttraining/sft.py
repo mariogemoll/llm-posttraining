@@ -39,7 +39,9 @@ def build_dataset(split, tokenizer) -> Dataset:
             skipped += 1
             continue
         rows.append({"text": text})
-    print(f"  Skipped {skipped}/{total} examples exceeding {MAX_SEQ_LEN} tokens ({skipped / total:.1%})")
+    print(
+        f"  Skipped {skipped}/{total} examples exceeding {MAX_SEQ_LEN} tokens ({skipped / total:.1%})"
+    )
     return Dataset.from_list(rows)
 
 

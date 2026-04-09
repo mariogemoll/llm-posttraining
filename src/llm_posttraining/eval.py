@@ -59,7 +59,9 @@ def detect_device(requested: str) -> str:
 
 def pick_dtype(device: str, requested: str) -> torch.dtype:
     if requested != "auto":
-        return {"float32": torch.float32, "float16": torch.float16, "bfloat16": torch.bfloat16}[requested]
+        return {"float32": torch.float32, "float16": torch.float16, "bfloat16": torch.bfloat16}[
+            requested
+        ]
     if device == "cuda":
         return torch.bfloat16
     if device == "mps":
@@ -83,7 +85,11 @@ def load_model_and_tokenizer(
     else:
         model_path = ckpt or model_id
 
-    label = f"LoRA adapter from {ckpt}" if is_lora else (f"merged model from {ckpt}" if ckpt else f"base model {model_id}")
+    label = (
+        f"LoRA adapter from {ckpt}"
+        if is_lora
+        else (f"merged model from {ckpt}" if ckpt else f"base model {model_id}")
+    )
     print(f"Loading {label} (device={device}, dtype={dtype}) ...")
 
     tokenizer = load_tokenizer(model_path)
@@ -93,7 +99,9 @@ def load_model_and_tokenizer(
     model = cast(GenerationModel, base_model)
     if is_lora:
         assert ckpt is not None
-        model = cast(GenerationModel, PeftModel.from_pretrained(base_model, ckpt, is_trainable=False))
+        model = cast(
+            GenerationModel, PeftModel.from_pretrained(base_model, ckpt, is_trainable=False)
+        )
 
     model.to(device)
     model.eval()
@@ -209,7 +217,9 @@ def evaluate(
             lora_path = None
 
         vllm_dtype = cast(ModelDType, "auto" if dtype == "auto" else dtype)
-        generations, token_counts = generate_vllm(model_path, prompts, max_seq_len, lora_path, vllm_dtype)
+        generations, token_counts = generate_vllm(
+            model_path, prompts, max_seq_len, lora_path, vllm_dtype
+        )
         total_tokens = sum(token_counts)
 
         for i, (gen, gold) in enumerate(zip(generations, gold_answers)):
@@ -217,17 +227,21 @@ def evaluate(
             ok = answers_match(pred, gold)
             correct += int(ok)
             has_boxed += int(bool(re.search(r"\\boxed\{", gen)))
-            results.append({
-                "question": dataset[i]["question"],
-                "gold": gold,
-                "pred": pred,
-                "correct": ok,
-                "generated": gen,
-            })
+            results.append(
+                {
+                    "question": dataset[i]["question"],
+                    "gold": gold,
+                    "pred": pred,
+                    "correct": ok,
+                    "generated": gen,
+                }
+            )
     else:
         device = detect_device(device)
         runtime_dtype = pick_dtype(device, dtype)
-        model, tokenizer = load_model_and_tokenizer(ckpt=ckpt, device=device, dtype=runtime_dtype, model_id=model_id)
+        model, tokenizer = load_model_and_tokenizer(
+            ckpt=ckpt, device=device, dtype=runtime_dtype, model_id=model_id
+        )
 
         for start, generations, token_counts in generate_batched(
             model, tokenizer, prompts, batch_size, max_seq_len, device
@@ -240,13 +254,15 @@ def evaluate(
                 ok = answers_match(pred, gold)
                 correct += int(ok)
                 has_boxed += int(bool(re.search(r"\\boxed\{", gen)))
-                results.append({
-                    "question": dataset[start + i]["question"],
-                    "gold": gold,
-                    "pred": pred,
-                    "correct": ok,
-                    "generated": gen,
-                })
+                results.append(
+                    {
+                        "question": dataset[start + i]["question"],
+                        "gold": gold,
+                        "pred": pred,
+                        "correct": ok,
+                        "generated": gen,
+                    }
+                )
 
     elapsed = time.perf_counter() - wall_start
     total = len(results)
@@ -286,8 +302,12 @@ def main():
     parser.add_argument("--show_samples", type=int, default=0, help="Print N random completions")
     parser.add_argument("--batch_size", type=int, default=DEFAULT_BATCH_SIZE)
     parser.add_argument("--device", default="auto", choices=["auto", "cuda", "mps", "cpu"])
-    parser.add_argument("--dtype", default="auto", choices=["auto", "float32", "float16", "bfloat16"])
-    parser.add_argument("--backend", default="hf", choices=["hf", "vllm"], help="Inference backend (hf or vllm)")
+    parser.add_argument(
+        "--dtype", default="auto", choices=["auto", "float32", "float16", "bfloat16"]
+    )
+    parser.add_argument(
+        "--backend", default="hf", choices=["hf", "vllm"], help="Inference backend (hf or vllm)"
+    )
     args = parser.parse_args()
 
     acc, results = evaluate(

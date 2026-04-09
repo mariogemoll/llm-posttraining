@@ -5,7 +5,12 @@
 
 import torch
 from peft import LoraConfig, TaskType
-from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel, PreTrainedTokenizerBase
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    PreTrainedModel,
+    PreTrainedTokenizerBase,
+)
 
 MODEL_ID = "Qwen/Qwen2.5-Math-1.5B"
 MAX_SEQ_LEN = 384
