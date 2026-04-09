@@ -16,11 +16,13 @@ TensorBoard:
 """
 
 import argparse
+import importlib.util
 import math
 import os
 import re
 import time
 
+import torch
 from datasets import Dataset
 from transformers import TrainerCallback, TrainerControl, TrainerState
 from trl import GRPOConfig, GRPOTrainer
@@ -29,6 +31,15 @@ from llm_posttraining.data import PROMPT_TEMPLATE, load_gsm8k
 from llm_posttraining.model import LORA_CONFIG, MAX_SEQ_LEN, MODEL_ID, load_tokenizer
 from llm_posttraining.reward import compute_reward, extract_answer
 from llm_posttraining.run_logger import RunLogger
+
+
+def resolve_attn_implementation(attn_implementation: str) -> str:
+    """Pick the best supported attention backend for this machine."""
+    if attn_implementation != "auto":
+        return attn_implementation
+    if torch.cuda.is_available() and importlib.util.find_spec("flash_attn") is not None:
+        return "flash_attention_2"
+    return "sdpa"
 
 
 # ── Callbacks ────────────────────────────────────────────────────────────────
@@ -202,6 +213,7 @@ def train(
     base_model: str | None = None,
     use_vllm: bool = False,
     vllm_gpu_memory_utilization: float = 0.2,
+    attn_implementation: str = "auto",
     num_generations: int = 8,
     prompts_per_step: int = 3,
     epochs: int = 1,
@@ -218,6 +230,9 @@ def train(
 
     model_id = base_model or MODEL_ID
     print(f"Base model: {model_id}")
+
+    resolved_attn_implementation = resolve_attn_implementation(attn_implementation)
+    print(f"Attention backend: {resolved_attn_implementation}")
 
     steps_per_epoch = len(train_dataset) // prompts_per_step
     effective_max_steps = max_steps if max_steps > 0 else epochs * steps_per_epoch
@@ -245,6 +260,10 @@ def train(
         weight_decay=0.01,
         bf16=True,
         gradient_checkpointing=True,
+        model_init_kwargs={
+            "dtype": "bfloat16",
+            "attn_implementation": resolved_attn_implementation,
+        },
         # GRPO / KL
         loss_type="dr_grpo",
         scale_rewards="none",
@@ -275,6 +294,7 @@ def train(
             "temperature": config.temperature,
             "use_vllm": use_vllm,
             "vllm_gpu_memory_utilization": vllm_gpu_memory_utilization,
+            "attn_implementation": resolved_attn_implementation,
             "base_model": model_id,
             "prompts_per_step": prompts_per_step,
         },
@@ -334,6 +354,12 @@ def main():
         default=0.2,
         help="Fraction of GPU memory reserved for vLLM when --use_vllm is enabled.",
     )
+    parser.add_argument(
+        "--attn_implementation",
+        choices=["auto", "flash_attention_2", "sdpa", "eager"],
+        default="auto",
+        help="Attention backend for the training model. auto prefers flash_attention_2 when available, else sdpa.",
+    )
     parser.add_argument("--num_generations", type=int, default=8, help="Rollouts per prompt (G)")
     parser.add_argument(
         "--prompts_per_step",
@@ -353,6 +379,7 @@ def main():
         base_model=args.base_model,
         use_vllm=args.use_vllm,
         vllm_gpu_memory_utilization=args.vllm_gpu_memory_utilization,
+        attn_implementation=args.attn_implementation,
         num_generations=args.num_generations,
         prompts_per_step=args.prompts_per_step,
         epochs=args.epochs,
