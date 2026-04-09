@@ -1,0 +1,20 @@
+name: CI
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: "Check for large files"
+        run: scripts/check_files_in_repo.sh
+      - name: "Check license headers"
+        run: python scripts/check_license_headers.py
+      - name: "Run ruff"
+        uses: astral-sh/ruff-action@v3
+        with:
+          src: src

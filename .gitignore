@@ -1,4 +1,13 @@
+.claude
+.codex
+.cursor
+.ipynb_checkpoints
 .python-version
-*.egg-info
+.venv
+.vscode
 __pycache__
+*.egg-info
+*.log
+*.safetensors
+uv.lock
 
