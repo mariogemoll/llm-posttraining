@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Mario Gemoll
+# SPDX-License-Identifier: 0BSD
+
 """Evaluate a model on GSM8K using HuggingFace generation.
 
 Works with base models, merged checkpoints, and LoRA adapter checkpoints.

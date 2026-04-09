@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Mario Gemoll
+# SPDX-License-Identifier: 0BSD
+
 """Verifiable reward for GSM8K: exact-match on numeric answer in \\boxed{}."""
 
 import re
