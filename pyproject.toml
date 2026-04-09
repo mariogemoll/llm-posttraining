@@ -19,6 +19,9 @@ dependencies = [
 dev = ["ruff", "ty"]
 vllm = ["vllm"]
 
+[tool.ty.environment]
+extra-paths = ["stubs"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

@@ -1,13 +1,14 @@
 # SPDX-FileCopyrightText: 2026 Mario Gemoll
 # SPDX-License-Identifier: 0BSD
 
-"""Evaluate a model on GSM8K using HuggingFace generation.
+"""Evaluate a model on GSM8K using HuggingFace or vLLM generation.
 
 Works with base models, merged checkpoints, and LoRA adapter checkpoints.
 Supports CUDA, MPS (macOS), and CPU.
 
 Usage:
     python -m llm_posttraining.eval --split val
+    python -m llm_posttraining.eval --split val --backend vllm
     python -m llm_posttraining.eval --split val --ckpt checkpoints_sft/merged
     python -m llm_posttraining.eval --split val --ckpt checkpoints_trl/checkpoint-200
     python -m llm_posttraining.eval --split test --show_samples 10
@@ -19,7 +20,7 @@ import os
 import random
 import re
 import time
-from typing import Protocol, cast
+from typing import Literal, Protocol, cast
 
 import torch
 from peft import PeftModel
@@ -31,6 +32,7 @@ from llm_posttraining.reward import answers_match, extract_answer
 
 DEFAULT_MODEL_ID = "Qwen/Qwen2.5-Math-1.5B"
 DEFAULT_MAX_SEQ_LEN = 384
+DEFAULT_BATCH_SIZE = 32
 
 
 class GenerationModel(Protocol):
@@ -108,7 +110,7 @@ def generate_batched(
     tokenizer: PreTrainedTokenizerBase,
     prompts: list[str],
     batch_size: int,
-    max_new_tokens: int,
+    max_seq_len: int,
     device: str,
 ):
     """Generate completions in batches. Yields (start_idx, texts, token_counts)."""
@@ -117,6 +119,7 @@ def generate_batched(
         inputs = tokenizer(batch, return_tensors="pt", padding=True)
         inputs = {k: v.to(device) for k, v in inputs.items()}
         prompt_lengths = inputs["attention_mask"].sum(dim=1)
+        max_new_tokens = max_seq_len - int(prompt_lengths.max())
 
         with torch.inference_mode():
             sequences = model.generate(
@@ -140,29 +143,55 @@ def generate_batched(
         yield start, texts, token_counts
 
 
+ModelDType = Literal["auto", "half", "float16", "bfloat16", "float", "float32"]
+
+
+def generate_vllm(
+    model_path: str,
+    prompts: list[str],
+    max_seq_len: int,
+    lora_path: str | None = None,
+    dtype: ModelDType = "bfloat16",
+) -> tuple[list[str], list[int]]:
+    """Generate completions using vLLM for maximum throughput."""
+    from vllm import LLM, SamplingParams
+    from vllm.lora.request import LoRARequest
+
+    llm = LLM(
+        model=model_path,
+        dtype=dtype,
+        enable_lora=lora_path is not None,
+        max_model_len=max_seq_len,
+    )
+    sampling_params = SamplingParams(temperature=0, max_tokens=max_seq_len)
+    lora_request = LoRARequest("adapter", 1, lora_path) if lora_path else None
+
+    outputs = llm.generate(prompts, sampling_params, lora_request=lora_request)
+    texts = [o.outputs[0].text for o in outputs]
+    token_counts = [len(o.outputs[0].token_ids) for o in outputs]
+    return texts, token_counts
+
+
 def evaluate(
     split: str = "val",
     max_examples: int | None = None,
     ckpt: str | None = None,
-    batch_size: int = 4,
+    batch_size: int = DEFAULT_BATCH_SIZE,
     device: str = "auto",
     dtype: str = "auto",
     model_id: str = DEFAULT_MODEL_ID,
-    max_new_tokens: int = DEFAULT_MAX_SEQ_LEN,
+    max_seq_len: int = DEFAULT_MAX_SEQ_LEN,
+    backend: str = "hf",
 ):
     splits = load_gsm8k()
     dataset = splits[split]
     if max_examples:
         dataset = dataset.select(range(min(max_examples, len(dataset))))
 
-    device = detect_device(device)
-    runtime_dtype = pick_dtype(device, dtype)
-    model, tokenizer = load_model_and_tokenizer(ckpt=ckpt, device=device, dtype=runtime_dtype, model_id=model_id)
-
     prompts = [PROMPT_TEMPLATE.format(question=ex["question"]) for ex in dataset]
     gold_answers = [ex["answer"] for ex in dataset]
 
-    print(f"Evaluating {len(prompts)} examples ({split} split) ...")
+    print(f"Evaluating {len(prompts)} examples ({split} split) with backend={backend} ...")
     wall_start = time.perf_counter()
 
     correct = 0
@@ -170,24 +199,59 @@ def evaluate(
     total_tokens = 0
     results = []
 
-    for start, generations, token_counts in generate_batched(
-        model, tokenizer, prompts, batch_size, max_new_tokens, device
-    ):
-        total_tokens += sum(token_counts)
-        batch_gold = gold_answers[start : start + len(generations)]
+    if backend == "vllm":
+        adapter_config_path = os.path.join(ckpt, "adapter_config.json") if ckpt else None
+        is_lora = adapter_config_path is not None and os.path.exists(adapter_config_path)
+        if is_lora:
+            assert ckpt is not None
+            assert adapter_config_path is not None
+            with open(adapter_config_path, encoding="utf-8") as f:
+                adapter_cfg = json.load(f)
+            model_path = adapter_cfg.get("base_model_name_or_path") or model_id
+            lora_path = ckpt
+        else:
+            model_path = ckpt or model_id
+            lora_path = None
 
-        for i, (gen, gold) in enumerate(zip(generations, batch_gold)):
+        vllm_dtype = cast(ModelDType, "auto" if dtype == "auto" else dtype)
+        generations, token_counts = generate_vllm(model_path, prompts, max_seq_len, lora_path, vllm_dtype)
+        total_tokens = sum(token_counts)
+
+        for i, (gen, gold) in enumerate(zip(generations, gold_answers)):
             pred = extract_answer(gen)
             ok = answers_match(pred, gold)
             correct += int(ok)
             has_boxed += int(bool(re.search(r"\\boxed\{", gen)))
             results.append({
-                "question": dataset[start + i]["question"],
+                "question": dataset[i]["question"],
                 "gold": gold,
                 "pred": pred,
                 "correct": ok,
                 "generated": gen,
             })
+    else:
+        device = detect_device(device)
+        runtime_dtype = pick_dtype(device, dtype)
+        model, tokenizer = load_model_and_tokenizer(ckpt=ckpt, device=device, dtype=runtime_dtype, model_id=model_id)
+
+        for start, generations, token_counts in generate_batched(
+            model, tokenizer, prompts, batch_size, max_seq_len, device
+        ):
+            total_tokens += sum(token_counts)
+            batch_gold = gold_answers[start : start + len(generations)]
+
+            for i, (gen, gold) in enumerate(zip(generations, batch_gold)):
+                pred = extract_answer(gen)
+                ok = answers_match(pred, gold)
+                correct += int(ok)
+                has_boxed += int(bool(re.search(r"\\boxed\{", gen)))
+                results.append({
+                    "question": dataset[start + i]["question"],
+                    "gold": gold,
+                    "pred": pred,
+                    "correct": ok,
+                    "generated": gen,
+                })
 
     elapsed = time.perf_counter() - wall_start
     total = len(results)
@@ -223,11 +287,12 @@ def main():
     parser.add_argument("--max_examples", type=int, default=None)
     parser.add_argument("--ckpt", default=None, help="Merged model dir or LoRA adapter dir")
     parser.add_argument("--model_id", default=DEFAULT_MODEL_ID, help="Base model HF ID")
-    parser.add_argument("--max_new_tokens", type=int, default=DEFAULT_MAX_SEQ_LEN)
+    parser.add_argument("--max_seq_len", type=int, default=DEFAULT_MAX_SEQ_LEN)
     parser.add_argument("--show_samples", type=int, default=0, help="Print N random completions")
-    parser.add_argument("--batch_size", type=int, default=4)
+    parser.add_argument("--batch_size", type=int, default=DEFAULT_BATCH_SIZE)
     parser.add_argument("--device", default="auto", choices=["auto", "cuda", "mps", "cpu"])
     parser.add_argument("--dtype", default="auto", choices=["auto", "float32", "float16", "bfloat16"])
+    parser.add_argument("--backend", default="hf", choices=["hf", "vllm"], help="Inference backend (hf or vllm)")
     args = parser.parse_args()
 
     acc, results = evaluate(
@@ -238,7 +303,8 @@ def main():
         device=args.device,
         dtype=args.dtype,
         model_id=args.model_id,
-        max_new_tokens=args.max_new_tokens,
+        max_seq_len=args.max_seq_len,
+        backend=args.backend,
     )
     if args.show_samples:
         show_samples(results, args.show_samples)
