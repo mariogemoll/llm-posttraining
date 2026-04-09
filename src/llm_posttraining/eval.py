@@ -114,7 +114,7 @@ def generate_batched(
     """Generate completions in batches. Yields (start_idx, texts, token_counts)."""
     for start in tqdm(range(0, len(prompts), batch_size), desc="Generating"):
         batch = prompts[start : start + batch_size]
-        inputs = tokenizer(batch, return_tensors="pt", padding=True, truncation=True, max_length=max_new_tokens)
+        inputs = tokenizer(batch, return_tensors="pt", padding=True)
         inputs = {k: v.to(device) for k, v in inputs.items()}
         prompt_lengths = inputs["attention_mask"].sum(dim=1)
 
@@ -133,6 +133,10 @@ def generate_batched(
             texts.append(tokenizer.decode(gen_ids, skip_special_tokens=True))
             token_counts.append(int(gen_ids.numel()))
 
+        del inputs, sequences
+        if device == "cuda":
+            torch.cuda.empty_cache()
+
         yield start, texts, token_counts
 
 
@@ -144,7 +148,7 @@ def evaluate(
     device: str = "auto",
     dtype: str = "auto",
     model_id: str = DEFAULT_MODEL_ID,
-    max_seq_len: int = DEFAULT_MAX_SEQ_LEN,
+    max_new_tokens: int = DEFAULT_MAX_SEQ_LEN,
 ):
     splits = load_gsm8k()
     dataset = splits[split]
@@ -167,7 +171,7 @@ def evaluate(
     results = []
 
     for start, generations, token_counts in generate_batched(
-        model, tokenizer, prompts, batch_size, max_seq_len, device
+        model, tokenizer, prompts, batch_size, max_new_tokens, device
     ):
         total_tokens += sum(token_counts)
         batch_gold = gold_answers[start : start + len(generations)]
@@ -219,7 +223,7 @@ def main():
     parser.add_argument("--max_examples", type=int, default=None)
     parser.add_argument("--ckpt", default=None, help="Merged model dir or LoRA adapter dir")
     parser.add_argument("--model_id", default=DEFAULT_MODEL_ID, help="Base model HF ID")
-    parser.add_argument("--max_seq_len", type=int, default=DEFAULT_MAX_SEQ_LEN)
+    parser.add_argument("--max_new_tokens", type=int, default=DEFAULT_MAX_SEQ_LEN)
     parser.add_argument("--show_samples", type=int, default=0, help="Print N random completions")
     parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--device", default="auto", choices=["auto", "cuda", "mps", "cpu"])
@@ -234,7 +238,7 @@ def main():
         device=args.device,
         dtype=args.dtype,
         model_id=args.model_id,
-        max_seq_len=args.max_seq_len,
+        max_new_tokens=args.max_new_tokens,
     )
     if args.show_samples:
         show_samples(results, args.show_samples)
