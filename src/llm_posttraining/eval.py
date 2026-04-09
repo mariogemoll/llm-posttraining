@@ -25,13 +25,12 @@ from typing import Literal, Protocol, cast
 import torch
 from peft import PeftModel
 from tqdm import tqdm
-from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel, PreTrainedTokenizerBase
+from transformers import PreTrainedTokenizerBase
 
 from llm_posttraining.data import PROMPT_TEMPLATE, load_gsm8k
+from llm_posttraining.model import MAX_SEQ_LEN, MODEL_ID, load_base_model, load_tokenizer
 from llm_posttraining.reward import answers_match, extract_answer
 
-DEFAULT_MODEL_ID = "Qwen/Qwen2.5-Math-1.5B"
-DEFAULT_MAX_SEQ_LEN = 384
 DEFAULT_BATCH_SIZE = 32
 
 
@@ -69,7 +68,7 @@ def pick_dtype(device: str, requested: str) -> torch.dtype:
 
 
 def load_model_and_tokenizer(
-    ckpt: str | None, device: str, dtype: torch.dtype, model_id: str = DEFAULT_MODEL_ID
+    ckpt: str | None, device: str, dtype: torch.dtype, model_id: str = MODEL_ID
 ) -> tuple[GenerationModel, PreTrainedTokenizerBase]:
     """Load model and tokenizer, auto-detecting LoRA vs merged checkpoints."""
     adapter_config_path = os.path.join(ckpt, "adapter_config.json") if ckpt else None
@@ -87,14 +86,10 @@ def load_model_and_tokenizer(
     label = f"LoRA adapter from {ckpt}" if is_lora else (f"merged model from {ckpt}" if ckpt else f"base model {model_id}")
     print(f"Loading {label} (device={device}, dtype={dtype}) ...")
 
-    tokenizer = AutoTokenizer.from_pretrained(model_path)
-    assert isinstance(tokenizer, PreTrainedTokenizerBase)
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
+    tokenizer = load_tokenizer(model_path)
     tokenizer.padding_side = "left"
 
-    base_model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=dtype, low_cpu_mem_usage=True)
-    assert isinstance(base_model, PreTrainedModel)
+    base_model = load_base_model(model_path, dtype=dtype, device_map="cpu")
     model = cast(GenerationModel, base_model)
     if is_lora:
         assert ckpt is not None
@@ -179,8 +174,8 @@ def evaluate(
     batch_size: int = DEFAULT_BATCH_SIZE,
     device: str = "auto",
     dtype: str = "auto",
-    model_id: str = DEFAULT_MODEL_ID,
-    max_seq_len: int = DEFAULT_MAX_SEQ_LEN,
+    model_id: str = MODEL_ID,
+    max_seq_len: int = MAX_SEQ_LEN,
     backend: str = "hf",
 ):
     splits = load_gsm8k()
@@ -286,8 +281,8 @@ def main():
     parser.add_argument("--split", default="val", choices=["train", "val", "test"])
     parser.add_argument("--max_examples", type=int, default=None)
     parser.add_argument("--ckpt", default=None, help="Merged model dir or LoRA adapter dir")
-    parser.add_argument("--model_id", default=DEFAULT_MODEL_ID, help="Base model HF ID")
-    parser.add_argument("--max_seq_len", type=int, default=DEFAULT_MAX_SEQ_LEN)
+    parser.add_argument("--model_id", default=MODEL_ID, help="Base model HF ID")
+    parser.add_argument("--max_seq_len", type=int, default=MAX_SEQ_LEN)
     parser.add_argument("--show_samples", type=int, default=0, help="Print N random completions")
     parser.add_argument("--batch_size", type=int, default=DEFAULT_BATCH_SIZE)
     parser.add_argument("--device", default="auto", choices=["auto", "cuda", "mps", "cpu"])
