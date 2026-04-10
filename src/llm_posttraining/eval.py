@@ -122,20 +122,27 @@ def generate_batched(
         inputs = tokenizer(batch, return_tensors="pt", padding=True)
         inputs = {k: v.to(device) for k, v in inputs.items()}
         prompt_lengths = inputs["attention_mask"].sum(dim=1)
-        max_new_tokens = max_seq_len - int(prompt_lengths.max())
+        # Give the batch exactly enough max_new_tokens for even the SHORTEST prompt
+        # to theoretically hit max_seq_len absolute total tokens if it needs to.
+        max_generate_tokens = max(1, max_seq_len - int(prompt_lengths.min()))
 
         with torch.inference_mode():
             sequences = model.generate(
                 **inputs,
                 do_sample=False,
-                max_new_tokens=max_new_tokens,
+                max_new_tokens=max_generate_tokens,
                 pad_token_id=tokenizer.pad_token_id,
                 eos_token_id=tokenizer.eos_token_id,
             )
 
+        N = inputs["input_ids"].size(1)
         texts, token_counts = [], []
-        for seq, plen in zip(sequences, prompt_lengths):
-            gen_ids = seq[int(plen) :]
+        for i, seq in enumerate(sequences):
+            # Then explicitly extract only the real tokens they were allowed
+            # to generate up to max_seq_len total tokens each.
+            plen = int(prompt_lengths[i])
+            allowed_new = max(0, max_seq_len - plen)
+            gen_ids = seq[N : N + allowed_new]
             texts.append(tokenizer.decode(gen_ids, skip_special_tokens=True))
             token_counts.append(int(gen_ids.numel()))
 
