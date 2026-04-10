@@ -212,10 +212,10 @@ def train(
     output_dir: str = "checkpoints_rlvr",
     base_model: str | None = "checkpoints_sft/merged",
     use_vllm: bool = False,
-    vllm_gpu_memory_utilization: float = 0.7,
+    vllm_gpu_memory_utilization: float = 0.6,
     attn_implementation: str = "auto",
     num_generations: int = 8,
-    prompts_per_step: int = 2,
+    prompts_per_step: int = 4,
     epochs: int = 1,
     max_steps: int = -1,
 ):
@@ -252,9 +252,6 @@ def train(
         lr_scheduler_type="warmup_stable_decay",
         warmup_steps=50,
         lr_scheduler_kwargs={
-            "num_stable_steps": max(
-                1, effective_max_steps - 50 - max(100, effective_max_steps // 10)
-            ),
             "num_decay_steps": max(100, effective_max_steps // 10),
         },
         weight_decay=0.01,
@@ -351,7 +348,7 @@ def main():
     parser.add_argument(
         "--vllm_gpu_memory_utilization",
         type=float,
-        default=0.7,
+        default=0.6,
         help="Fraction of GPU memory reserved for vLLM when --use_vllm is enabled.",
     )
     parser.add_argument(
@@ -364,7 +361,7 @@ def main():
     parser.add_argument(
         "--prompts_per_step",
         type=int,
-        default=2,
+        default=4,
         help="Prompts per optimizer step. batch_size = num_generations * prompts_per_step",
     )
     parser.add_argument(
