@@ -43,7 +43,7 @@ def load_base_model(
     """Load the base model for training or inference."""
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
-        torch_dtype=dtype,
+        dtype=dtype,
         device_map=device_map,
         attn_implementation=attn_implementation,
         low_cpu_mem_usage=True,
