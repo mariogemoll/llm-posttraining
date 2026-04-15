@@ -6,8 +6,9 @@
 
 Usage:
     python -m llm_posttraining.ask "Janet has 5 apples..."
-    python -m llm_posttraining.ask --checkpoint checkpoints_rlvr/checkpoint-1200 "Janet has 5 apples..."
-    python -m llm_posttraining.ask --checkpoint checkpoints_sft/merged "Janet has 5 apples..."
+    python -m llm_posttraining.ask --model checkpoints_rlvr/checkpoint-1200 "Janet has 5 apples..."
+    python -m llm_posttraining.ask --model checkpoints_sft/merged "Janet has 5 apples..."
+    python -m llm_posttraining.ask --model mariogemoll/Qwen2.5-Math-1.5B-GSM8K-SFT-LoRA "Janet has 5 apples..."
     python -m llm_posttraining.ask --max-new-tokens 512 "Janet has 5 apples..."
 """
 
@@ -45,21 +46,53 @@ def _load_tokenizer(path: str) -> PreTrainedTokenizerBase:
     return tokenizer
 
 
-def load_model_and_tokenizer(checkpoint: Path | None) -> tuple:
+def _is_lora_adapter(model_id: str) -> bool:
+    """Check whether a model path or HF repo contains a LoRA adapter."""
+    local = Path(model_id)
+    if local.is_dir():
+        return (local / "adapter_config.json").exists()
+    # Remote HF repo — check via the hub API
+    from huggingface_hub import HfApi
+
+    api = HfApi()
+    siblings = api.model_info(model_id).siblings or []
+    return any(s.rfilename == "adapter_config.json" for s in siblings)
+
+
+def _load_adapter_base_model(model_id: str) -> str:
+    """Read the base model ID from a LoRA adapter's config."""
+    local = Path(model_id)
+    if local.is_dir():
+        cfg = json.loads((local / "adapter_config.json").read_text())
+    else:
+        from huggingface_hub import hf_hub_download
+
+        path = hf_hub_download(model_id, "adapter_config.json")
+        cfg = json.loads(Path(path).read_text())
+    base_path = cfg["base_model_name_or_path"]
+    # Resolve relative local paths against the repo root
+    if Path(base_path).exists() is False and not base_path.startswith("/"):
+        candidate = _REPO_ROOT / base_path
+        if candidate.exists():
+            return str(candidate)
+    return base_path
+
+
+def load_model_and_tokenizer(model_id: str | None) -> tuple:
     """Load model and tokenizer.
 
-    - No checkpoint: base Qwen model from HuggingFace.
-    - Checkpoint with adapter_config.json: LoRA adapter; base model is read
-      from the adapter config's base_model_name_or_path.
-    - Checkpoint without adapter_config.json: plain fine-tuned model.
+    - No model: base Qwen model from HuggingFace.
+    - LoRA adapter (local dir or HF repo): base model is read from the
+      adapter config's base_model_name_or_path.
+    - Plain model (local dir or HF repo): loaded directly.
     """
-    if checkpoint is None:
-        model_path = MODEL_ID
-        print(f"Loading base model {model_path} ...", file=sys.stderr)
-        tokenizer = _load_tokenizer(model_path)
+    if model_id is None:
+        model_id = MODEL_ID
+        print(f"Loading base model {model_id} ...", file=sys.stderr)
+        tokenizer = _load_tokenizer(model_id)
         model = AutoModelForCausalLM.from_pretrained(
-            model_path,
-            torch_dtype=torch.bfloat16,
+            model_id,
+            dtype=torch.bfloat16,
             device_map="auto",
             attn_implementation="sdpa",
             low_cpu_mem_usage=True,
@@ -67,29 +100,25 @@ def load_model_and_tokenizer(checkpoint: Path | None) -> tuple:
         model.eval()
         return model, tokenizer
 
-    adapter_config = checkpoint / "adapter_config.json"
-    if adapter_config.exists():
-        base_path = json.loads(adapter_config.read_text())["base_model_name_or_path"]
-        # Resolve relative paths against the repo root
-        if not Path(base_path).is_absolute():
-            base_path = str(_REPO_ROOT / base_path)
+    if _is_lora_adapter(model_id):
+        base_path = _load_adapter_base_model(model_id)
         print(f"Loading base model from {base_path} ...", file=sys.stderr)
-        tokenizer = _load_tokenizer(str(checkpoint))
+        tokenizer = _load_tokenizer(model_id)
         base = AutoModelForCausalLM.from_pretrained(
             base_path,
-            torch_dtype=torch.bfloat16,
+            dtype=torch.bfloat16,
             device_map="auto",
             attn_implementation="sdpa",
             low_cpu_mem_usage=True,
         )
-        print(f"Loading LoRA adapter from {checkpoint} ...", file=sys.stderr)
-        model = PeftModel.from_pretrained(base, str(checkpoint))
+        print(f"Loading LoRA adapter from {model_id} ...", file=sys.stderr)
+        model = PeftModel.from_pretrained(base, model_id)
     else:
-        print(f"Loading model from {checkpoint} ...", file=sys.stderr)
-        tokenizer = _load_tokenizer(str(checkpoint))
+        print(f"Loading model from {model_id} ...", file=sys.stderr)
+        tokenizer = _load_tokenizer(model_id)
         model = AutoModelForCausalLM.from_pretrained(
-            str(checkpoint),
-            torch_dtype=torch.bfloat16,
+            model_id,
+            dtype=torch.bfloat16,
             device_map="auto",
             attn_implementation="sdpa",
             low_cpu_mem_usage=True,
@@ -157,10 +186,9 @@ def main():
     parser = argparse.ArgumentParser(description="One-turn chat with a trained model.")
     parser.add_argument("question", nargs="+", help="Math question to ask the model")
     parser.add_argument(
-        "--checkpoint",
-        type=Path,
+        "--model",
         default=None,
-        help="Checkpoint directory (plain model or LoRA adapter). Omit for base Qwen.",
+        help="Local path or HF repo ID (plain model or LoRA adapter). Omit for base Qwen.",
     )
     parser.add_argument(
         "--max-new-tokens",
@@ -171,7 +199,7 @@ def main():
     args = parser.parse_args()
 
     question = " ".join(args.question)
-    model, tokenizer = load_model_and_tokenizer(args.checkpoint)
+    model, tokenizer = load_model_and_tokenizer(args.model)
 
     prompt = PROMPT_TEMPLATE.format(question=question)
     print(f"\n{GREY}{prompt}{RESET}", flush=True)
