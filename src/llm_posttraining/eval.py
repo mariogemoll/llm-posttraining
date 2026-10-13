@@ -317,7 +317,7 @@ def main():
     )
     args = parser.parse_args()
 
-    acc, results = evaluate(
+    _, results = evaluate(
         split=args.split,
         max_examples=args.max_examples,
         ckpt=args.ckpt,

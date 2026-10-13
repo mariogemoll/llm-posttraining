@@ -7,7 +7,6 @@ import re
 
 from datasets import load_dataset
 
-
 PROMPT_TEMPLATE = (
     "Problem: {question}\n\n"
     "Please reason step by step, and put your final answer within \\boxed{{}}.\n\n"

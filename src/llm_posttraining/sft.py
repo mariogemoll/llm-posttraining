@@ -68,7 +68,7 @@ def train(output_dir: str = "checkpoints_sft", epochs: int = 1):
         gradient_accumulation_steps=2,
         learning_rate=5e-5,
         lr_scheduler_type="cosine",
-        warmup_ratio=0.05,
+        warmup_steps=0.05,
         weight_decay=0.01,
         bf16=True,
         max_length=MAX_SEQ_LEN,

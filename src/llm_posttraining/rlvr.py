@@ -17,6 +17,7 @@ TensorBoard:
 
 import argparse
 import importlib.util
+import logging
 import math
 import os
 import re
@@ -328,8 +329,8 @@ def train(
 
             if dist.is_available() and dist.is_initialized():
                 dist.destroy_process_group()
-        except Exception:
-            pass
+        except (RuntimeError, ValueError):
+            logging.getLogger(__name__).warning("Failed to destroy process group", exc_info=True)
 
     print("Done.")
 
